@@ -1,10 +1,10 @@
-#include "window.h"
 #include <cerrno>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include "window.h"
 
 /* Shared memory support code */
 static void randname(char *buf)
@@ -54,6 +54,22 @@ void Window::wl_buffer_release(void *data, struct wl_buffer *wl_buffer)
 {
     /* Sent by the compositor when it's no longer using this buffer */
     wl_buffer_destroy(wl_buffer);
+}
+
+void Window::xdg_toplevel_configure(void *data, struct xdg_toplevel *toplevel, int32_t width, int32_t height, wl_array *states)
+{
+    Window *window = static_cast<Window *>(data);
+    if (width != 0 && height != 0)
+    {
+        window->width = width;
+        window->height = height;
+    }
+}
+
+void Window::xdg_toplevel_close(void *data, struct xdg_toplevel *toplevel)
+{
+    Window *window = static_cast<Window *>(data);
+    window->running = false;
 }
 
 void Window::xdg_surface_configure(void *data, struct xdg_surface *xdg_surface, uint32_t serial)
@@ -107,6 +123,11 @@ struct wl_buffer *Window::DrawFrame()
     return buffer;
 }
 
+void Window::InitializeVulkan()
+{
+
+}
+
 void Window::xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
 {
     xdg_wm_base_pong(xdg_wm_base, serial);
@@ -131,6 +152,9 @@ void Window::registry_global(void *data, struct wl_registry *wl_registry,
         window->xdg_wm_base =
                 wl_registry_bind(wl_registry, name, &xdg_wm_base_interface, 1);
         xdg_wm_base_add_listener(window->xdg_wm_base, &xdg_wm_base_listener, data);
+    } else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0) {
+        window->xdg_decoration_manager =
+                wl_registry_bind(wl_registry, name, &zxdg_decoration_manager_v1_interface, 1);
     }
 }
 
@@ -147,13 +171,17 @@ Window::Window(int width, int height)
 
     static const struct wl_registry_listener wl_registry_listener = {
         .global = &Window::registry_global,
-                .global_remove = &Window::registry_global_remove,
+        .global_remove = &Window::registry_global_remove,
     };
 
     static const struct xdg_surface_listener xdg_surface_listener = {
         .configure = &Window::xdg_surface_configure,
     };
 
+    static const struct xdg_toplevel_listener xdg_toplevel_listener = {
+        .configure = &Window::xdg_toplevel_configure,
+        .close = &Window::xdg_toplevel_close,
+    };
     wl_display = wl_display_connect(NULL);
     wl_registry = wl_display_get_registry(wl_display);
     wl_registry_add_listener(wl_registry, &wl_registry_listener, this);
@@ -163,12 +191,18 @@ Window::Window(int width, int height)
     xdg_surface = xdg_wm_base_get_xdg_surface(xdg_wm_base, wl_surface);
     xdg_surface_add_listener(xdg_surface, &xdg_surface_listener, this);
     xdg_toplevel = xdg_surface_get_toplevel(xdg_surface);
-    xdg_toplevel_set_title(xdg_toplevel, "Example client");
+    xdg_toplevel_add_listener(xdg_toplevel, &xdg_toplevel_listener, this);
+    xdg_toplevel_decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(xdg_decoration_manager, xdg_toplevel);
     wl_surface_commit(wl_surface);
+
+    InitializeVulkan();
+    running = true;
 }
 
 Window::~Window()
 {
+    zxdg_toplevel_decoration_v1_destroy(xdg_toplevel_decoration);
+    zxdg_decoration_manager_v1_destroy(xdg_decoration_manager);
     xdg_toplevel_destroy(xdg_toplevel);
     xdg_surface_destroy(xdg_surface);
     wl_surface_destroy(wl_surface);
@@ -178,9 +212,18 @@ Window::~Window()
     wl_display_disconnect(wl_display);
 }
 
+void Window::SetTitle(const char *title)
+{
+    xdg_toplevel_set_title(xdg_toplevel, title);
+    xdg_toplevel_set_app_id(xdg_toplevel, title);
+}
+
 void Window::EventLoop()
 {
-    while (wl_display_dispatch(wl_display)) {
-        /* This space deliberately left blank */
+    while (running) {
+        if (!wl_display_dispatch(wl_display))
+        {
+            running = false;
+        }
     }
 }

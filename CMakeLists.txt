@@ -40,9 +40,11 @@ macro(wayland_generate_protocols _protocol_xml _output_name)
 endmacro()
 
 set(XDG_SHELL_XML "${WAYLAND_PROTOCOLS}/stable/xdg-shell/xdg-shell.xml")
+set(XDG_DECORATION_XML "${WAYLAND_PROTOCOLS}/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml")
 
 # Generate the files
 wayland_generate_protocols(${XDG_SHELL_XML} xdg-shell-protocol)
+wayland_generate_protocols(${XDG_DECORATION_XML} xdg_decoration_protocol)
 
 add_executable(vulkan-wayland
     main.cpp
@@ -53,7 +55,7 @@ add_executable(vulkan-wayland
 # 4. Include directories and link libraries
 target_include_directories(vulkan-wayland PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(vulkan-wayland PRIVATE ${WAYLAND_CLIENT_LIBRARIES} Vulkan::Vulkan)
-target_compile_options(vulkan-wayland PRIVATE -fpermissive)
+target_compile_options(vulkan-wayland PRIVATE -fpermissive) # have to use this to suppress errors on pointer casting
 
 include(GNUInstallDirs)
 install(TARGETS vulkan-wayland
