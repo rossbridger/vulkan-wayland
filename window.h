@@ -10,9 +10,8 @@
 class Window
 {
 public:
-    Window(int width, int height);
+    Window(const char *title, int width, int height);
     ~Window();
-    void SetTitle(const char* title);
 
     void EventLoop();
 private:
@@ -32,9 +31,11 @@ private:
 
     struct wl_buffer *DrawFrame();
     void InitializeVulkan();
+    void DestroyVulkan();
 
     /* Globals */
     int width, height;
+    const char* title = "";
     /* Globals */
     struct wl_display *wl_display;
     struct wl_registry *wl_registry;
@@ -48,6 +49,12 @@ private:
     struct zxdg_decoration_manager_v1 *xdg_decoration_manager;
     struct zxdg_toplevel_decoration_v1 *xdg_toplevel_decoration;
     bool running;
+
+    /* Vulkan objects */
+    VkInstance vk_instance;
+    VkSurfaceKHR vk_surface;
+    VkDevice vk_device;
+    VkQueue vk_queue;
 };
 
 #endif // WINDOW_H

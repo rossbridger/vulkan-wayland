@@ -125,7 +125,34 @@ struct wl_buffer *Window::DrawFrame()
 
 void Window::InitializeVulkan()
 {
+    VkApplicationInfo appInfo{};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pApplicationName = title;
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.pEngineName = "No Engine";
+    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.apiVersion = VK_API_VERSION_1_0;
 
+    VkInstanceCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    createInfo.pApplicationInfo = &appInfo;
+    createInfo.enabledExtensionCount = 0;
+    createInfo.ppEnabledExtensionNames = nullptr;
+    createInfo.enabledLayerCount = 0;
+    createInfo.ppEnabledLayerNames = nullptr;
+    vkCreateInstance(&createInfo, nullptr, &vk_instance);
+
+    VkWaylandSurfaceCreateInfoKHR surfaceCreateInfo = {0};
+    surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+    surfaceCreateInfo.display = wl_display;
+    surfaceCreateInfo.surface = wl_surface;
+    vkCreateWaylandSurfaceKHR(vk_instance, &surfaceCreateInfo, NULL, &vk_surface);
+}
+
+void Window::DestroyVulkan()
+{
+    vkDestroySurfaceKHR(vk_instance, vk_surface, NULL);
+    vkDestroyInstance(vk_instance, nullptr);
 }
 
 void Window::xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial)
@@ -164,8 +191,9 @@ void Window::registry_global_remove(void *data, struct wl_registry *wl_registry,
     /* This space deliberately left blank */
 }
 
-Window::Window(int width, int height)
+Window::Window(const char *title, int width, int height)
 {
+    this->title = title;
     this->width = width;
     this->height = height;
 
@@ -192,6 +220,8 @@ Window::Window(int width, int height)
     xdg_surface_add_listener(xdg_surface, &xdg_surface_listener, this);
     xdg_toplevel = xdg_surface_get_toplevel(xdg_surface);
     xdg_toplevel_add_listener(xdg_toplevel, &xdg_toplevel_listener, this);
+    xdg_toplevel_set_title(xdg_toplevel, title);
+    xdg_toplevel_set_app_id(xdg_toplevel, title);
     xdg_toplevel_decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(xdg_decoration_manager, xdg_toplevel);
     wl_surface_commit(wl_surface);
 
@@ -201,6 +231,7 @@ Window::Window(int width, int height)
 
 Window::~Window()
 {
+    DestroyVulkan();
     zxdg_toplevel_decoration_v1_destroy(xdg_toplevel_decoration);
     zxdg_decoration_manager_v1_destroy(xdg_decoration_manager);
     xdg_toplevel_destroy(xdg_toplevel);
@@ -210,12 +241,6 @@ Window::~Window()
     wl_compositor_destroy(wl_compositor);
     wl_registry_destroy(wl_registry);
     wl_display_disconnect(wl_display);
-}
-
-void Window::SetTitle(const char *title)
-{
-    xdg_toplevel_set_title(xdg_toplevel, title);
-    xdg_toplevel_set_app_id(xdg_toplevel, title);
 }
 
 void Window::EventLoop()

@@ -7,8 +7,7 @@
 
 int main(int argc, char *argv[])
 {
-    Window window(600, 480);
-    window.SetTitle("Hello vulkan");
+    Window window("Hello vulkan", 600, 480);
     window.EventLoop();
     return 0;
 }
