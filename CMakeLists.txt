@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 1. Find PkgConfig (standard tool for discovering Wayland)
 find_package(PkgConfig REQUIRED)
+find_package(Vulkan REQUIRED)
 
 pkg_check_modules(WAYLAND_CLIENT REQUIRED wayland-client)
 
@@ -46,11 +47,12 @@ wayland_generate_protocols(${XDG_SHELL_XML} xdg-shell-protocol)
 add_executable(vulkan-wayland
     main.cpp
     ${WAYLAND_PROTOCOL_SRCS}
+    window.h window.cpp
 )
 
 # 4. Include directories and link libraries
 target_include_directories(vulkan-wayland PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(vulkan-wayland PRIVATE ${WAYLAND_CLIENT_LIBRARIES})
+target_link_libraries(vulkan-wayland PRIVATE ${WAYLAND_CLIENT_LIBRARIES} Vulkan::Vulkan)
 target_compile_options(vulkan-wayland PRIVATE -fpermissive)
 
 include(GNUInstallDirs)
