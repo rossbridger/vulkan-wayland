@@ -2,59 +2,10 @@
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
+#include <iostream>
 #include <sys/mman.h>
 #include <unistd.h>
 #include "window.h"
-
-/* Shared memory support code */
-static void randname(char *buf)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    long r = ts.tv_nsec;
-    for (int i = 0; i < 6; ++i) {
-        buf[i] = 'A' + (r & 15) + (r & 16) * 2;
-        r >>= 5;
-    }
-}
-
-static int create_shm_file(void)
-{
-    int retries = 100;
-    do {
-        char name[] = "/wl_shm-XXXXXX";
-        randname(name + sizeof(name) - 7);
-        --retries;
-        int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
-        if (fd >= 0) {
-            shm_unlink(name);
-            return fd;
-        }
-    } while (retries > 0 && errno == EEXIST);
-    return -1;
-}
-
-static int allocate_shm_file(size_t size)
-{
-    int fd = create_shm_file();
-    if (fd < 0)
-        return -1;
-    int ret;
-    do {
-        ret = ftruncate(fd, size);
-    } while (ret < 0 && errno == EINTR);
-    if (ret < 0) {
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-void Window::wl_buffer_release(void *data, struct wl_buffer *wl_buffer)
-{
-    /* Sent by the compositor when it's no longer using this buffer */
-    wl_buffer_destroy(wl_buffer);
-}
 
 void Window::xdg_toplevel_configure(void *data, struct xdg_toplevel *toplevel, int32_t width, int32_t height, wl_array *states)
 {
@@ -76,51 +27,6 @@ void Window::xdg_surface_configure(void *data, struct xdg_surface *xdg_surface, 
 {
     Window *window = static_cast<Window *>(data);
     xdg_surface_ack_configure(xdg_surface, serial);
-
-    struct wl_buffer *buffer = window->DrawFrame();
-    wl_surface_attach(window->wl_surface, buffer, 0, 0);
-    wl_surface_commit(window->wl_surface);
-}
-
-struct wl_buffer *Window::DrawFrame()
-{
-    int stride = width * 4;
-    int size = stride * height;
-
-    static const struct wl_buffer_listener wl_buffer_listener = {
-        .release = &Window::wl_buffer_release,
-    };
-
-    int fd = allocate_shm_file(size);
-    if (fd == -1) {
-        return NULL;
-    }
-
-    uint32_t *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED) {
-        close(fd);
-        return NULL;
-    }
-
-    struct wl_shm_pool *pool = wl_shm_create_pool(wl_shm, fd, size);
-    struct wl_buffer *buffer = wl_shm_pool_create_buffer(
-                pool, 0, width, height, stride, WL_SHM_FORMAT_XRGB8888);
-    wl_shm_pool_destroy(pool);
-    close(fd);
-
-    /* Draw checkerboxed background */
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            if ((x + y / 8 * 8) % 16 < 8)
-                data[y * width + x] = 0xFF666666;
-            else
-                data[y * width + x] = 0xFFEEEEEE;
-        }
-    }
-
-    munmap(data, size);
-    wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
-    return buffer;
 }
 
 void Window::InitializeVulkan()
@@ -135,8 +41,8 @@ void Window::InitializeVulkan()
         appInfo.apiVersion = VK_API_VERSION_1_2;
 
         const char *requiredExtensions[] = {
+            "VK_KHR_surface",
             "VK_KHR_wayland_surface",
-            "VK_KHR_swapchain",
         };
 
         VkInstanceCreateInfo createInfo{};
@@ -159,6 +65,10 @@ void Window::InitializeVulkan()
 
     uint32_t queueFamilyIndex = 0;
     {
+        static const char* const deviceExtensionNames[] = {
+            "VK_KHR_swapchain"
+        };
+
         VkDeviceQueueCreateInfo queueCreateInfo{};
         queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
@@ -172,9 +82,15 @@ void Window::InitializeVulkan()
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.pQueueCreateInfos = &queueCreateInfo;
         createInfo.queueCreateInfoCount = 1;
+        createInfo.enabledExtensionCount = sizeof(deviceExtensionNames) / sizeof(const char*);
+        createInfo.ppEnabledExtensionNames = deviceExtensionNames;
 
         createInfo.pEnabledFeatures = &deviceFeatures;
-        vkCreateDevice(vk_physical_device, &createInfo, nullptr, &vk_device);
+        if (vkCreateDevice(vk_physical_device, &createInfo, nullptr, &vk_device) != VK_SUCCESS)
+        { // better use macro for it
+            std::cerr << "Creating device failed" << std::endl;
+            abort();
+        }
     }
 
     { // get queue
@@ -186,12 +102,77 @@ void Window::InitializeVulkan()
         surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
         surfaceCreateInfo.display = wl_display;
         surfaceCreateInfo.surface = wl_surface;
-        vkCreateWaylandSurfaceKHR(vk_instance, &surfaceCreateInfo, nullptr, &vk_surface);
+        if (vkCreateWaylandSurfaceKHR(vk_instance, &surfaceCreateInfo, nullptr, &vk_surface) != VK_SUCCESS)
+        {
+            std::cerr << "Creating surface failed" << std::endl;
+            abort();
+        }
+    }
+
+    uint32_t imageCount = 3;
+    { // create swapchain
+        // probably should check vkGetPhysicalDeviceSurfaceCapabilitiesKHR first
+        VkPresentModeKHR presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+        vk_swapchain_extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+        vk_swapchain_image_format = VK_FORMAT_B8G8R8A8_SRGB;
+
+        VkSwapchainCreateInfoKHR createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        createInfo.surface = vk_surface;
+
+        createInfo.minImageCount = imageCount;
+        createInfo.imageFormat = vk_swapchain_image_format;
+        createInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        createInfo.imageExtent = vk_swapchain_extent;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // we use the same queue index here
+        createInfo.queueFamilyIndexCount = 0;
+        createInfo.pQueueFamilyIndices = nullptr;
+        createInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+
+        createInfo.presentMode = presentMode;
+        createInfo.clipped = VK_TRUE;
+        createInfo.oldSwapchain = VK_NULL_HANDLE;
+        if (vkCreateSwapchainKHR(vk_device, &createInfo, nullptr, &vk_swapchain) != VK_SUCCESS)
+        {
+            std::cerr << "Creating swapchain failed" << std::endl;
+            abort();
+        }
+        vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &imageCount, nullptr);
+        vk_swapchain_images.resize(imageCount);
+        vkGetSwapchainImagesKHR(vk_device, vk_swapchain, &imageCount, vk_swapchain_images.data());
+    }
+
+    { // create image views
+        vk_swapchain_imageviews.resize(imageCount);
+
+        for (size_t i = 0; i < imageCount; i++) {
+            VkImageViewCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image = vk_swapchain_images[i];
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            createInfo.format = vk_swapchain_image_format;
+            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            createInfo.subresourceRange.baseMipLevel = 0;
+            createInfo.subresourceRange.levelCount = 1;
+            createInfo.subresourceRange.baseArrayLayer = 0;
+            createInfo.subresourceRange.layerCount = 1;
+
+            vkCreateImageView(vk_device, &createInfo, nullptr, &vk_swapchain_imageviews[i]);
+        }
     }
 }
 
 void Window::DestroyVulkan()
 {
+    for (auto imageView : vk_swapchain_imageviews)
+    {
+        vkDestroyImageView(vk_device, imageView, nullptr);
+    }
+    vkDestroySwapchainKHR(vk_device, vk_swapchain, nullptr);
     vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr);
     vkDestroyDevice(vk_device, nullptr);
     vkDestroyInstance(vk_instance, nullptr);

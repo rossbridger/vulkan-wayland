@@ -22,14 +22,12 @@ private:
                                       uint32_t serial);
     static void xdg_wm_base_ping(void *data, struct xdg_wm_base *xdg_wm_base,
                                  uint32_t serial);
-    static void wl_buffer_release(void *data, struct wl_buffer *wl_buffer);
     static void xdg_toplevel_configure(void *data,
                                        struct xdg_toplevel *toplevel,
                                        int32_t width, int32_t height,
                                        struct wl_array *states);
     static void xdg_toplevel_close(void* data, struct xdg_toplevel* toplevel);
 
-    struct wl_buffer *DrawFrame();
     void InitializeVulkan();
     void DestroyVulkan();
 
@@ -56,6 +54,11 @@ private:
     VkDevice vk_device;
     VkQueue vk_queue;
     VkPhysicalDevice vk_physical_device;
+    VkSwapchainKHR vk_swapchain;
+    std::vector<VkImage> vk_swapchain_images;
+    std::vector<VkImageView> vk_swapchain_imageviews;
+    VkFormat vk_swapchain_image_format;
+    VkExtent2D vk_swapchain_extent;
 };
 
 #endif // WINDOW_H
