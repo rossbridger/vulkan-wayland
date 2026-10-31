@@ -28,8 +28,11 @@ private:
                                        struct wl_array *states);
     static void xdg_toplevel_close(void* data, struct xdg_toplevel* toplevel);
 
+    void DrawFrame();
     void InitializeVulkan();
     void DestroyVulkan();
+
+    VkShaderModule CreateShaderModule(const std::string filename);
 
     /* Globals */
     int width, height;
@@ -57,8 +60,13 @@ private:
     VkSwapchainKHR vk_swapchain;
     std::vector<VkImage> vk_swapchain_images;
     std::vector<VkImageView> vk_swapchain_imageviews;
+    std::vector<VkFramebuffer> vk_swapchain_framebuffers;
     VkFormat vk_swapchain_image_format;
     VkExtent2D vk_swapchain_extent;
+
+    VkRenderPass vk_render_pass;
+    VkPipelineLayout vk_pipeline_layout;
+    VkPipeline vk_graphics_pipeline;
 };
 
 #endif // WINDOW_H

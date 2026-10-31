@@ -50,12 +50,50 @@ add_executable(vulkan-wayland
     main.cpp
     ${WAYLAND_PROTOCOL_SRCS}
     window.h window.cpp
+    shader.vert
+    shader.frag
 )
 
 # 4. Include directories and link libraries
 target_include_directories(vulkan-wayland PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(vulkan-wayland PRIVATE ${WAYLAND_CLIENT_LIBRARIES} Vulkan::Vulkan)
 target_compile_options(vulkan-wayland PRIVATE -fpermissive) # have to use this to suppress errors on pointer casting
+
+# compiler vulkan shaders
+function(add_shaders TARGET_NAME)
+  set(SHADER_SOURCE_FILES ${ARGN}) # the rest of arguments to this function will be assigned as shader source files
+
+  # Validate that source files have been passed
+  list(LENGTH SHADER_SOURCE_FILES FILE_COUNT)
+  if(FILE_COUNT EQUAL 0)
+    message(FATAL_ERROR "Cannot create a shaders target without any source files")
+  endif()
+
+  set(SHADER_TARGETS)
+
+  foreach(SHADER_SOURCE IN LISTS SHADER_SOURCE_FILES)
+    cmake_path(GET SHADER_SOURCE FILENAME SHADER_NAME)
+
+    # Build command
+    set(SHADER_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${SHADER_NAME}.spv")
+
+    # Add product
+    set(SHADER_TARGET)
+    string(APPEND SHADER_TARGET ${SHADER_NAME})
+    list(APPEND SHADER_TARGETS ${SHADER_TARGET})
+
+    add_custom_target(${SHADER_TARGET}
+      COMMAND Vulkan::glslc "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_SOURCE}" "-o" "${SHADER_OUTPUT}"
+      DEPENDS ${SHADER_SOURCE}
+      COMMENT "Compiling Shaders ${SHADER_SOURCE}"
+      SOURCES ${SHADER_SOURCE}
+    )
+
+  endforeach()
+  add_dependencies(${TARGET_NAME} ${SHADER_TARGETS})
+endfunction()
+
+add_shaders(vulkan-wayland shader.vert shader.frag)
 
 include(GNUInstallDirs)
 install(TARGETS vulkan-wayland
