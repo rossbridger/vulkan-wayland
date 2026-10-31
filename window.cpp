@@ -125,33 +125,75 @@ struct wl_buffer *Window::DrawFrame()
 
 void Window::InitializeVulkan()
 {
-    VkApplicationInfo appInfo{};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = title;
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "No Engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
+    { // create vulkan instance
+        VkApplicationInfo appInfo{};
+        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        appInfo.pApplicationName = title;
+        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+        appInfo.pEngineName = "No Engine";
+        appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+        appInfo.apiVersion = VK_API_VERSION_1_2;
 
-    VkInstanceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = 0;
-    createInfo.ppEnabledExtensionNames = nullptr;
-    createInfo.enabledLayerCount = 0;
-    createInfo.ppEnabledLayerNames = nullptr;
-    vkCreateInstance(&createInfo, nullptr, &vk_instance);
+        const char *requiredExtensions[] = {
+            "VK_KHR_wayland_surface",
+            "VK_KHR_swapchain",
+        };
 
-    VkWaylandSurfaceCreateInfoKHR surfaceCreateInfo = {0};
-    surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-    surfaceCreateInfo.display = wl_display;
-    surfaceCreateInfo.surface = wl_surface;
-    vkCreateWaylandSurfaceKHR(vk_instance, &surfaceCreateInfo, NULL, &vk_surface);
+        VkInstanceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        createInfo.pApplicationInfo = &appInfo;
+        createInfo.enabledExtensionCount = sizeof(requiredExtensions) / sizeof(const char *);
+        createInfo.ppEnabledExtensionNames = requiredExtensions;
+        createInfo.enabledLayerCount = 0;
+        createInfo.ppEnabledLayerNames = nullptr;
+        vkCreateInstance(&createInfo, nullptr, &vk_instance);
+    }
+
+    { // create vulkan physical device
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(vk_instance, &deviceCount, nullptr);
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(vk_instance, &deviceCount, devices.data());
+        vk_physical_device = devices[0]; // Simplify the device selection process since i only have integrated card
+    }
+
+    uint32_t queueFamilyIndex = 0;
+    {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
+        queueCreateInfo.queueCount = 1;
+        float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        VkPhysicalDeviceFeatures deviceFeatures{};
+
+        VkDeviceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.queueCreateInfoCount = 1;
+
+        createInfo.pEnabledFeatures = &deviceFeatures;
+        vkCreateDevice(vk_physical_device, &createInfo, nullptr, &vk_device);
+    }
+
+    { // get queue
+        vkGetDeviceQueue(vk_device, queueFamilyIndex, 0, &vk_queue);
+    }
+
+    { // create vulkan surface
+        VkWaylandSurfaceCreateInfoKHR surfaceCreateInfo = {};
+        surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+        surfaceCreateInfo.display = wl_display;
+        surfaceCreateInfo.surface = wl_surface;
+        vkCreateWaylandSurfaceKHR(vk_instance, &surfaceCreateInfo, nullptr, &vk_surface);
+    }
 }
 
 void Window::DestroyVulkan()
 {
-    vkDestroySurfaceKHR(vk_instance, vk_surface, NULL);
+    vkDestroySurfaceKHR(vk_instance, vk_surface, nullptr);
+    vkDestroyDevice(vk_device, nullptr);
     vkDestroyInstance(vk_instance, nullptr);
 }
 

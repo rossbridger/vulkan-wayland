@@ -2,7 +2,7 @@
 #define WINDOW_H
 
 #include <wayland-client.h>
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_wayland.h>
 #include "xdg-shell-protocol.h"
 #include "xdg_decoration_protocol.h"
@@ -55,6 +55,7 @@ private:
     VkSurfaceKHR vk_surface;
     VkDevice vk_device;
     VkQueue vk_queue;
+    VkPhysicalDevice vk_physical_device;
 };
 
 #endif // WINDOW_H
