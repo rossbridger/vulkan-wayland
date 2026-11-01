@@ -67,6 +67,12 @@ private:
     VkRenderPass vk_render_pass;
     VkPipelineLayout vk_pipeline_layout;
     VkPipeline vk_graphics_pipeline;
+    VkCommandPool vk_command_pool;
+    VkCommandBuffer vk_command_buffer;
+
+    VkSemaphore vk_image_available_semaphore;
+    VkSemaphore vk_render_finished_semaphore;
+    VkFence vk_in_flight_fence;
 };
 
 #endif // WINDOW_H
